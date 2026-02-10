@@ -9,8 +9,8 @@ outdir: "../results"
 genbank_dir: "../genbank_reference"
 
 # Host removal: bowtie2 index prefixes (both searched sequentially)
-human_bt2_index: "/path/to/human_bt2_index"
-bankvole_bt2_index: "/path/to/bankvole_bt2_index"
+human_bt2_index: "/home/data/genomes/human/human"
+bankvole_bt2_index: "/home/data/genomes/bank_vole/bank_vole"
 
 # Aligner: "bwa-mem2" or "strobealign"
 aligner: "strobealign"
@@ -31,12 +31,12 @@ lines:
 enforce_inframe: true
 
 # De novo assemblers to run (trinity, spades, coronaspades, megahit)
+# NOTE: iva removed — incompatible with Python >=3.12 (missing distutils)
 assemblers:
   - trinity
   - spades
   - coronaspades
   - megahit
-  - iva
 
 # Trinity de novo assembly memory (GB)
 trinity_memory: 8

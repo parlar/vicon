@@ -797,6 +797,10 @@ rule coronaspades:
             -t {threads} \
             -m {params.memory} \
             -o {params.outdir}
+        # coronaSPAdes produces raw_contigs.fasta instead of contigs.fasta
+        if [ ! -f {output.fasta} ] && [ -f {params.outdir}/raw_contigs.fasta ]; then
+            cp {params.outdir}/raw_contigs.fasta {output.fasta}
+        fi
         """
 
 
