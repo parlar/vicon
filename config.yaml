@@ -1,0 +1,71 @@
+# ViCon — Viral Consensus Pipeline Configuration
+# ------------------------------------------------
+
+# Input directories (relative to vicon/)
+fastq_dir: "../clean_fasta"
+#fastq_dir: "../subset_fastq"
+ref_dir: "../sample-specific_refgenomes"
+outdir: "../results"
+genbank_dir: "../genbank_reference"
+
+# Host removal: bowtie2 index prefixes (both searched sequentially)
+human_bt2_index: "/path/to/human_bt2_index"
+bankvole_bt2_index: "/path/to/bankvole_bt2_index"
+
+# Aligner: "bwa-mem2" or "strobealign"
+aligner: "strobealign"
+
+# Iterative mapping: continue until mapped reads AND completeness stop improving
+max_iterations: 10
+min_iterations: 2
+
+# Threads per job
+threads: 8
+
+# Pipeline lines to run
+lines:
+  - dedup
+  - nodedup
+
+# bcftools consensus: filter out-of-frame indels
+enforce_inframe: true
+
+# De novo assemblers to run (trinity, spades, coronaspades, megahit)
+assemblers:
+  - trinity
+  - spades
+  - coronaspades
+  - megahit
+  - iva
+
+# Trinity de novo assembly memory (GB)
+trinity_memory: 8
+
+# SPAdes / coronaSPAdes memory (GB)
+spades_memory: 8
+
+# MEGAHIT memory (GB)
+megahit_memory: 8
+
+# QC: check for internal stop codons
+check_stops: true
+
+# De novo seed: run a quick MEGAHIT assembly before iterative mapping,
+# scaffold contigs against the reference, and use the result as the
+# starting reference.  Helps when the sample diverges from the reference.
+denovo_seed: false
+
+# Reference elongation: extend consensus beyond original reference
+# boundaries during iterative mapping using soft-clipped reads.
+extend_reference: false
+
+# Automatic reference selection: align reads against GenBank references
+# and pick the best L, M, S reference per sample (by mapped reads + completeness).
+# When false, uses pre-existing refs from ref_dir.
+auto_select_refs: false
+
+# Samples: auto-detected from fastq_dir if empty/omitted.
+# To run a subset, list sample names explicitly:
+# samples:
+#   - B1
+#   - F1

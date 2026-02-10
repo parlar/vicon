@@ -1,0 +1,28 @@
+# claude
+.claude/
+
+# pixi environments
+.pixi/*
+!.pixi/config.toml
+
+# snakemake
+.snakemake/
+
+# results / output
+results/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editors / IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~

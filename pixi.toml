@@ -1,0 +1,29 @@
+[workspace]
+authors = ["Pär Larsson <par.larsson@umu.se>"]
+channels = ["conda-forge", "bioconda"]
+name = "vicon"
+platforms = ["linux-64"]
+version = "0.1.0"
+
+[tasks]
+
+[dependencies]
+python = ">=3.10"
+samtools = "*"
+bcftools = "*"
+bwa = "*"
+bwa-mem2 = "*"
+minimap2 = "*"
+strobealign = "*"
+bowtie2 = "*"
+picard = "*"
+ivar = "*"
+spades = "*"
+megahit = "*"
+iva = "*"
+mafft = "*"
+mash = "*"
+pandas = "*"
+biopython = "*"
+snakemake = "*"
+iqtree = ">=2"
