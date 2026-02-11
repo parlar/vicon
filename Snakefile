@@ -39,6 +39,8 @@ def read_fasta(path):
 FASTQ_DIR  = config["fastq_dir"]
 REF_DIR    = config["ref_dir"]
 OUTDIR     = config["outdir"]
+SAMPLE_DIR = OUTDIR + "/samples"
+COMMON_DIR = OUTDIR + "/common"
 ALIGNER    = config.get("aligner", "bwa-mem2")
 MAX_ITERATIONS = config.get("max_iterations", 10)
 MIN_ITERATIONS = config.get("min_iterations", 2)
@@ -57,6 +59,7 @@ SEGMENTS           = ["L", "M", "S"]
 AUTO_SELECT_REFS   = config.get("auto_select_refs", False)
 DENOVO_SEED        = config.get("denovo_seed", False)
 EXTEND_REFERENCE   = config.get("extend_reference", False)
+MAX_GENBANK_REFS   = config.get("max_genbank_refs", 50)
 
 
 # ── Sample detection ───────────────────────────────────────────
@@ -91,10 +94,10 @@ def get_raw_r2(wildcards):
     return SAMPLES[wildcards.sample]["r2"]
 
 def get_r1(wildcards):
-    return f"{OUTDIR}/{wildcards.sample}/host_filtered/clean_R1.fastq.gz"
+    return f"{SAMPLE_DIR}/{wildcards.sample}/host_filtered/clean_R1.fastq.gz"
 
 def get_r2(wildcards):
-    return f"{OUTDIR}/{wildcards.sample}/host_filtered/clean_R2.fastq.gz"
+    return f"{SAMPLE_DIR}/{wildcards.sample}/host_filtered/clean_R2.fastq.gz"
 
 def _analysis_bam(base, line):
     """Return dedup BAM path for dedup line, raw BAM for nodedup."""
@@ -105,31 +108,31 @@ def _analysis_bam(base, line):
 def get_assembly_fasta(wildcards):
     """Return the assembly FASTA path for a given assembler."""
     paths = {
-        "trinity":      f"{OUTDIR}/{wildcards.sample}/{wildcards.line}/trinity/assembly/Trinity.fasta",
-        "spades":       f"{OUTDIR}/{wildcards.sample}/{wildcards.line}/spades/contigs.fasta",
-        "coronaspades": f"{OUTDIR}/{wildcards.sample}/{wildcards.line}/coronaspades/contigs.fasta",
-        "megahit":      f"{OUTDIR}/{wildcards.sample}/{wildcards.line}/megahit/final.contigs.fa",
-        "iva":          f"{OUTDIR}/{wildcards.sample}/{wildcards.line}/iva/contigs.fasta",
+        "trinity":      f"{SAMPLE_DIR}/{wildcards.sample}/{wildcards.line}/trinity/assembly/Trinity.fasta",
+        "spades":       f"{SAMPLE_DIR}/{wildcards.sample}/{wildcards.line}/spades/contigs.fasta",
+        "coronaspades": f"{SAMPLE_DIR}/{wildcards.sample}/{wildcards.line}/coronaspades/contigs.fasta",
+        "megahit":      f"{SAMPLE_DIR}/{wildcards.sample}/{wildcards.line}/megahit/final.contigs.fa",
+        "iva":          f"{SAMPLE_DIR}/{wildcards.sample}/{wildcards.line}/iva/contigs.fasta",
     }
     return paths[wildcards.assembler]
 
 def get_ref_input(wildcards):
     """Return reference FASTA: auto-selected or pre-existing."""
     if AUTO_SELECT_REFS:
-        return f"{OUTDIR}/{wildcards.sample}/autoref/best_refs.fasta"
+        return f"{SAMPLE_DIR}/{wildcards.sample}/autoref/best_refs.fasta"
     return f"{REF_DIR}/{wildcards.sample}_best_refs.fasta"
 
 def get_iterative_ref(wildcards):
     """Return starting reference for iterative mapping: seeded or original."""
     if DENOVO_SEED:
-        return f"{OUTDIR}/{wildcards.sample}/denovo_seed/seeded_ref.fasta"
-    return f"{OUTDIR}/{wildcards.sample}/reference/ref.fasta"
+        return f"{SAMPLE_DIR}/{wildcards.sample}/denovo_seed/seeded_ref.fasta"
+    return f"{SAMPLE_DIR}/{wildcards.sample}/reference/ref.fasta"
 
 def get_iterative_ref_fai(wildcards):
     """Return .fai for the iterative mapping starting reference."""
     if DENOVO_SEED:
-        return f"{OUTDIR}/{wildcards.sample}/denovo_seed/seeded_ref.fasta.fai"
-    return f"{OUTDIR}/{wildcards.sample}/reference/ref.fasta.fai"
+        return f"{SAMPLE_DIR}/{wildcards.sample}/denovo_seed/seeded_ref.fasta.fai"
+    return f"{SAMPLE_DIR}/{wildcards.sample}/reference/ref.fasta.fai"
 
 
 # ── Wildcard constraints ──────────────────────────────────────
@@ -148,24 +151,25 @@ wildcard_constraints:
 rule all:
     input:
         expand(
-            "{outdir}/{sample}/{line}/summary.tsv",
-            outdir=OUTDIR,
+            "{sd}/{sample}/{line}/summary.tsv",
+            sd=SAMPLE_DIR,
             sample=SAMPLES.keys(),
             line=LINES,
         ),
         expand(
-            "{outdir}/{sample}/{line}/homoplasy/homoplasy_report.tsv",
-            outdir=OUTDIR,
+            "{sd}/{sample}/{line}/homoplasy/homoplasy_report.tsv",
+            sd=SAMPLE_DIR,
             sample=SAMPLES.keys(),
             line=LINES,
         ),
         expand(
-            "{outdir}/iqtree/{line}/{segment}/iqtree.treefile",
-            outdir=OUTDIR,
+            "{sd}/{sample}/{line}/iqtree/{segment}/iqtree.treefile",
+            sd=SAMPLE_DIR,
             line=LINES,
             segment=SEGMENTS,
+            sample=SAMPLES.keys(),
         ),
-        OUTDIR + "/iqtree/iqtree_summary.tsv",
+        COMMON_DIR + "/iqtree/iqtree_summary.tsv",
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -178,8 +182,8 @@ rule host_removal:
         r1 = get_raw_r1,
         r2 = get_raw_r2,
     output:
-        r1 = OUTDIR + "/{sample}/host_filtered/clean_R1.fastq.gz",
-        r2 = OUTDIR + "/{sample}/host_filtered/clean_R2.fastq.gz",
+        r1 = SAMPLE_DIR + "/{sample}/host_filtered/clean_R1.fastq.gz",
+        r2 = SAMPLE_DIR + "/{sample}/host_filtered/clean_R2.fastq.gz",
     params:
         human_idx    = HUMAN_BT2_INDEX,
         bankvole_idx = BANKVOLE_BT2_INDEX,
@@ -219,12 +223,12 @@ rule host_removal:
 rule autoref_map:
     """Map host-filtered reads against all GenBank refs for one segment."""
     input:
-        r1 = OUTDIR + "/{sample}/host_filtered/clean_R1.fastq.gz",
-        r2 = OUTDIR + "/{sample}/host_filtered/clean_R2.fastq.gz",
+        r1 = SAMPLE_DIR + "/{sample}/host_filtered/clean_R1.fastq.gz",
+        r2 = SAMPLE_DIR + "/{sample}/host_filtered/clean_R2.fastq.gz",
         ref = GENBANK_DIR + "/{segment}.full_len.cds.clean.uniq.fa",
     output:
-        bam = OUTDIR + "/{sample}/autoref/{segment}/mapped.bam",
-        bai = OUTDIR + "/{sample}/autoref/{segment}/mapped.bam.bai",
+        bam = SAMPLE_DIR + "/{sample}/autoref/{segment}/mapped.bam",
+        bai = SAMPLE_DIR + "/{sample}/autoref/{segment}/mapped.bam.bai",
     threads: THREADS
     shell:
         """
@@ -239,12 +243,12 @@ rule autoref_map:
 rule autoref_select:
     """Select best reference per segment by completeness (fraction covered >2x)."""
     input:
-        bam = OUTDIR + "/{sample}/autoref/{segment}/mapped.bam",
-        bai = OUTDIR + "/{sample}/autoref/{segment}/mapped.bam.bai",
+        bam = SAMPLE_DIR + "/{sample}/autoref/{segment}/mapped.bam",
+        bai = SAMPLE_DIR + "/{sample}/autoref/{segment}/mapped.bam.bai",
         ref = GENBANK_DIR + "/{segment}.full_len.cds.clean.uniq.fa",
     output:
-        stats = OUTDIR + "/{sample}/autoref/{segment}/ref_stats.tsv",
-        best_fa = OUTDIR + "/{sample}/autoref/{segment}/best.fasta",
+        stats = SAMPLE_DIR + "/{sample}/autoref/{segment}/ref_stats.tsv",
+        best_fa = SAMPLE_DIR + "/{sample}/autoref/{segment}/best.fasta",
     run:
         import subprocess
         from collections import defaultdict
@@ -343,13 +347,35 @@ rule autoref_select:
 rule autoref_combine:
     """Combine best L, M, S references into a single per-sample FASTA."""
     input:
-        L = OUTDIR + "/{sample}/autoref/L/best.fasta",
-        M = OUTDIR + "/{sample}/autoref/M/best.fasta",
-        S = OUTDIR + "/{sample}/autoref/S/best.fasta",
+        L = SAMPLE_DIR + "/{sample}/autoref/L/best.fasta",
+        M = SAMPLE_DIR + "/{sample}/autoref/M/best.fasta",
+        S = SAMPLE_DIR + "/{sample}/autoref/S/best.fasta",
     output:
-        ref = OUTDIR + "/{sample}/autoref/best_refs.fasta",
+        ref = SAMPLE_DIR + "/{sample}/autoref/best_refs.fasta",
     shell:
         "cat {input.L} {input.M} {input.S} > {output.ref}"
+
+
+# ═══════════════════════════════════════════════════════════════
+# GENBANK REFERENCE SUBSAMPLING (Mash-based diversity selection)
+# ═══════════════════════════════════════════════════════════════
+
+rule subsample_genbank:
+    """Subsample GenBank references to N diverse representatives using Mash distances."""
+    input:
+        fasta = GENBANK_DIR + "/{segment}.full_len.cds.clean.uniq.fa",
+    output:
+        fasta = COMMON_DIR + "/genbank_subsampled/{segment}.subsampled.fa",
+    params:
+        max_refs = MAX_GENBANK_REFS,
+    threads: 1
+    shell:
+        """
+        set -euo pipefail
+        mkdir -p $(dirname {output.fasta})
+        python3 {workflow.basedir}/scripts/mash_subsample.py \
+            {input.fasta} {output.fasta} {params.max_refs}
+        """
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -361,7 +387,7 @@ rule rename_ref:
     input:
         ref = get_ref_input,
     output:
-        ref = OUTDIR + "/{sample}/reference/ref.fasta",
+        ref = SAMPLE_DIR + "/{sample}/reference/ref.fasta",
     run:
         seqs = []
         name = None
@@ -399,9 +425,9 @@ rule rename_ref:
 rule index_ref:
     """Index the renamed per-sample reference (shared by both lines)."""
     input:
-        ref = OUTDIR + "/{sample}/reference/ref.fasta",
+        ref = SAMPLE_DIR + "/{sample}/reference/ref.fasta",
     output:
-        fai = OUTDIR + "/{sample}/reference/ref.fasta.fai",
+        fai = SAMPLE_DIR + "/{sample}/reference/ref.fasta.fai",
     params:
         aligner = ALIGNER,
     shell:
@@ -424,9 +450,9 @@ rule denovo_seed_assembly:
         r1 = get_r1,
         r2 = get_r2,
     output:
-        contigs = OUTDIR + "/{sample}/denovo_seed/megahit/final.contigs.fa",
+        contigs = SAMPLE_DIR + "/{sample}/denovo_seed/megahit/final.contigs.fa",
     params:
-        outdir = OUTDIR + "/{sample}/denovo_seed/megahit",
+        outdir = SAMPLE_DIR + "/{sample}/denovo_seed/megahit",
     threads: THREADS
     shell:
         """
@@ -443,11 +469,11 @@ rule denovo_seed_assembly:
 rule denovo_seed_scaffold:
     """Scaffold de novo contigs against reference to build a seeded reference."""
     input:
-        contigs = OUTDIR + "/{sample}/denovo_seed/megahit/final.contigs.fa",
-        ref     = OUTDIR + "/{sample}/reference/ref.fasta",
-        fai     = OUTDIR + "/{sample}/reference/ref.fasta.fai",
+        contigs = SAMPLE_DIR + "/{sample}/denovo_seed/megahit/final.contigs.fa",
+        ref     = SAMPLE_DIR + "/{sample}/reference/ref.fasta",
+        fai     = SAMPLE_DIR + "/{sample}/reference/ref.fasta.fai",
     output:
-        seeded = OUTDIR + "/{sample}/denovo_seed/seeded_ref.fasta",
+        seeded = SAMPLE_DIR + "/{sample}/denovo_seed/seeded_ref.fasta",
     threads: THREADS
     shell:
         """
@@ -474,9 +500,9 @@ rule denovo_seed_scaffold:
 rule index_seeded_ref:
     """Index the seeded reference."""
     input:
-        ref = OUTDIR + "/{sample}/denovo_seed/seeded_ref.fasta",
+        ref = SAMPLE_DIR + "/{sample}/denovo_seed/seeded_ref.fasta",
     output:
-        fai = OUTDIR + "/{sample}/denovo_seed/seeded_ref.fasta.fai",
+        fai = SAMPLE_DIR + "/{sample}/denovo_seed/seeded_ref.fasta.fai",
     params:
         aligner = ALIGNER,
     shell:
@@ -501,10 +527,10 @@ rule iterative_mapping:
         r1  = get_r1,
         r2  = get_r2,
     output:
-        consensus = OUTDIR + "/{sample}/{line}/iterative/final_consensus.fasta",
-        bam       = OUTDIR + "/{sample}/{line}/iterative/analysis.bam",
-        bai       = OUTDIR + "/{sample}/{line}/iterative/analysis.bam.bai",
-        stats     = OUTDIR + "/{sample}/{line}/iterative/convergence_stats.tsv",
+        consensus = SAMPLE_DIR + "/{sample}/{line}/iterative/final_consensus.fasta",
+        bam       = SAMPLE_DIR + "/{sample}/{line}/iterative/analysis.bam",
+        bai       = SAMPLE_DIR + "/{sample}/{line}/iterative/analysis.bam.bai",
+        stats     = SAMPLE_DIR + "/{sample}/{line}/iterative/convergence_stats.tsv",
     params:
         sample          = "{sample}",
         line            = "{line}",
@@ -513,7 +539,7 @@ rule iterative_mapping:
         min_iterations  = MIN_ITERATIONS,
         enforce_inframe = ENFORCE_INFRAME,
         extend_ref      = EXTEND_REFERENCE,
-        outdir          = OUTDIR + "/{sample}/{line}/iterative",
+        outdir          = SAMPLE_DIR + "/{sample}/{line}/iterative",
     threads: THREADS
     shell:
         r"""
@@ -675,10 +701,10 @@ rule dedup:
 rule extract_assembly_reads:
     """Extract paired FASTQ from the final iterative-mapping BAM for assembly."""
     input:
-        bam = OUTDIR + "/{sample}/{line}/iterative/analysis.bam",
+        bam = SAMPLE_DIR + "/{sample}/{line}/iterative/analysis.bam",
     output:
-        r1 = OUTDIR + "/{sample}/{line}/assembly_reads/mapped_R1.fastq.gz",
-        r2 = OUTDIR + "/{sample}/{line}/assembly_reads/mapped_R2.fastq.gz",
+        r1 = SAMPLE_DIR + "/{sample}/{line}/assembly_reads/mapped_R1.fastq.gz",
+        r2 = SAMPLE_DIR + "/{sample}/{line}/assembly_reads/mapped_R2.fastq.gz",
     shell:
         """
         set -euo pipefail
@@ -693,10 +719,10 @@ rule extract_assembly_reads:
 rule trinity:
     """Run Trinity de novo assembly via Docker."""
     input:
-        r1 = OUTDIR + "/{sample}/{line}/assembly_reads/mapped_R1.fastq.gz",
-        r2 = OUTDIR + "/{sample}/{line}/assembly_reads/mapped_R2.fastq.gz",
+        r1 = SAMPLE_DIR + "/{sample}/{line}/assembly_reads/mapped_R1.fastq.gz",
+        r2 = SAMPLE_DIR + "/{sample}/{line}/assembly_reads/mapped_R2.fastq.gz",
     output:
-        fasta = OUTDIR + "/{sample}/{line}/trinity/assembly/Trinity.fasta",
+        fasta = SAMPLE_DIR + "/{sample}/{line}/trinity/assembly/Trinity.fasta",
     params:
         memory = TRINITY_MEMORY,
     threads: THREADS
@@ -733,12 +759,12 @@ rule trinity:
 rule spades:
     """Run SPAdes in rnaviral mode."""
     input:
-        r1 = OUTDIR + "/{sample}/{line}/assembly_reads/mapped_R1.fastq.gz",
-        r2 = OUTDIR + "/{sample}/{line}/assembly_reads/mapped_R2.fastq.gz",
+        r1 = SAMPLE_DIR + "/{sample}/{line}/assembly_reads/mapped_R1.fastq.gz",
+        r2 = SAMPLE_DIR + "/{sample}/{line}/assembly_reads/mapped_R2.fastq.gz",
     output:
-        fasta = OUTDIR + "/{sample}/{line}/spades/contigs.fasta",
+        fasta = SAMPLE_DIR + "/{sample}/{line}/spades/contigs.fasta",
     params:
-        outdir = OUTDIR + "/{sample}/{line}/spades",
+        outdir = SAMPLE_DIR + "/{sample}/{line}/spades",
         memory = SPADES_MEMORY,
     threads: THREADS
     shell:
@@ -757,12 +783,12 @@ rule spades:
 rule megahit:
     """Run MEGAHIT de novo assembly."""
     input:
-        r1 = OUTDIR + "/{sample}/{line}/assembly_reads/mapped_R1.fastq.gz",
-        r2 = OUTDIR + "/{sample}/{line}/assembly_reads/mapped_R2.fastq.gz",
+        r1 = SAMPLE_DIR + "/{sample}/{line}/assembly_reads/mapped_R1.fastq.gz",
+        r2 = SAMPLE_DIR + "/{sample}/{line}/assembly_reads/mapped_R2.fastq.gz",
     output:
-        fasta = OUTDIR + "/{sample}/{line}/megahit/final.contigs.fa",
+        fasta = SAMPLE_DIR + "/{sample}/{line}/megahit/final.contigs.fa",
     params:
-        outdir = OUTDIR + "/{sample}/{line}/megahit",
+        outdir = SAMPLE_DIR + "/{sample}/{line}/megahit",
     threads: THREADS
     shell:
         """
@@ -779,12 +805,12 @@ rule megahit:
 rule coronaspades:
     """Run coronaSPAdes for coronavirus-like genome assembly."""
     input:
-        r1 = OUTDIR + "/{sample}/{line}/assembly_reads/mapped_R1.fastq.gz",
-        r2 = OUTDIR + "/{sample}/{line}/assembly_reads/mapped_R2.fastq.gz",
+        r1 = SAMPLE_DIR + "/{sample}/{line}/assembly_reads/mapped_R1.fastq.gz",
+        r2 = SAMPLE_DIR + "/{sample}/{line}/assembly_reads/mapped_R2.fastq.gz",
     output:
-        fasta = OUTDIR + "/{sample}/{line}/coronaspades/contigs.fasta",
+        fasta = SAMPLE_DIR + "/{sample}/{line}/coronaspades/contigs.fasta",
     params:
-        outdir = OUTDIR + "/{sample}/{line}/coronaspades",
+        outdir = SAMPLE_DIR + "/{sample}/{line}/coronaspades",
         memory = SPADES_MEMORY,
     threads: THREADS
     shell:
@@ -807,12 +833,12 @@ rule coronaspades:
 rule iva:
     """Run IVA (Iterative Virus Assembler)."""
     input:
-        r1 = OUTDIR + "/{sample}/{line}/assembly_reads/mapped_R1.fastq.gz",
-        r2 = OUTDIR + "/{sample}/{line}/assembly_reads/mapped_R2.fastq.gz",
+        r1 = SAMPLE_DIR + "/{sample}/{line}/assembly_reads/mapped_R1.fastq.gz",
+        r2 = SAMPLE_DIR + "/{sample}/{line}/assembly_reads/mapped_R2.fastq.gz",
     output:
-        fasta = OUTDIR + "/{sample}/{line}/iva/contigs.fasta",
+        fasta = SAMPLE_DIR + "/{sample}/{line}/iva/contigs.fasta",
     params:
-        outdir = OUTDIR + "/{sample}/{line}/iva",
+        outdir = SAMPLE_DIR + "/{sample}/{line}/iva",
     threads: THREADS
     shell:
         """
@@ -833,12 +859,12 @@ rule iva:
 rule ivar_map:
     """Remap original reads to the iterative-mapping final consensus for iVar."""
     input:
-        ref = OUTDIR + "/{sample}/{line}/iterative/final_consensus.fasta",
+        ref = SAMPLE_DIR + "/{sample}/{line}/iterative/final_consensus.fasta",
         r1  = get_r1,
         r2  = get_r2,
     output:
-        bam = OUTDIR + "/{sample}/{line}/ivar/mapped.bam",
-        bai = OUTDIR + "/{sample}/{line}/ivar/mapped.bam.bai",
+        bam = SAMPLE_DIR + "/{sample}/{line}/ivar/mapped.bam",
+        bai = SAMPLE_DIR + "/{sample}/{line}/ivar/mapped.bam.bai",
     params:
         sample  = "{sample}",
         aligner = ALIGNER,
@@ -857,11 +883,11 @@ rule ivar_consensus:
     """Run iVar per-contig consensus calling."""
     input:
         bam = lambda wc: _analysis_bam(
-            f"{OUTDIR}/{wc.sample}/{wc.line}/ivar", wc.line
+            f"{SAMPLE_DIR}/{wc.sample}/{wc.line}/ivar", wc.line
         ),
-        ref = OUTDIR + "/{sample}/{line}/iterative/final_consensus.fasta",
+        ref = SAMPLE_DIR + "/{sample}/{line}/iterative/final_consensus.fasta",
     output:
-        consensus = OUTDIR + "/{sample}/{line}/ivar/final_consensus.fasta",
+        consensus = SAMPLE_DIR + "/{sample}/{line}/ivar/final_consensus.fasta",
     shell:
         r"""
         set -euo pipefail
@@ -879,7 +905,7 @@ rule ivar_consensus:
                 samtools view -b {input.bam} "$CONTIG" > "$TMP_DIR/$CONTIG.bam"
                 samtools index "$TMP_DIR/$CONTIG.bam"
 
-                samtools mpileup -aa -A -d 0 -Q 0 \
+                samtools mpileup -aa -A -d 0 -Q 0 -r "$CONTIG" \
                     -f "$TMP_DIR/$CONTIG.fasta" "$TMP_DIR/$CONTIG.bam" \
                     | ivar consensus -m 2 -p "$TMP_DIR/$CONTIG"
 
@@ -904,12 +930,12 @@ rule ivar_consensus:
 rule final_map:
     """Map reads to the iVar final consensus."""
     input:
-        ref = OUTDIR + "/{sample}/{line}/ivar/final_consensus.fasta",
+        ref = SAMPLE_DIR + "/{sample}/{line}/ivar/final_consensus.fasta",
         r1  = get_r1,
         r2  = get_r2,
     output:
-        bam = OUTDIR + "/{sample}/{line}/final/mapped.bam",
-        bai = OUTDIR + "/{sample}/{line}/final/mapped.bam.bai",
+        bam = SAMPLE_DIR + "/{sample}/{line}/final/mapped.bam",
+        bai = SAMPLE_DIR + "/{sample}/{line}/final/mapped.bam.bai",
     params:
         sample  = "{sample}",
         aligner = ALIGNER,
@@ -932,9 +958,9 @@ rule assembly_guided_polish:
     """Polish final consensus using a de novo assembly."""
     input:
         assembly  = get_assembly_fasta,
-        consensus = OUTDIR + "/{sample}/{line}/ivar/final_consensus.fasta",
+        consensus = SAMPLE_DIR + "/{sample}/{line}/ivar/final_consensus.fasta",
     output:
-        polished = OUTDIR + "/{sample}/{line}/{assembler}_polish/{assembler}_guided_polished.fasta",
+        polished = SAMPLE_DIR + "/{sample}/{line}/{assembler}_polish/{assembler}_guided_polished.fasta",
     threads: THREADS
     shell:
         """
@@ -965,11 +991,11 @@ rule assembly_vs_consensus:
     """Compare a de novo assembly to the final consensus."""
     input:
         assembly  = get_assembly_fasta,
-        consensus = OUTDIR + "/{sample}/{line}/ivar/final_consensus.fasta",
+        consensus = SAMPLE_DIR + "/{sample}/{line}/ivar/final_consensus.fasta",
     output:
-        paf = OUTDIR + "/{sample}/{line}/{assembler}_polish/{assembler}_vs_consensus/{assembler}_vs_consensus.paf",
-        bam = OUTDIR + "/{sample}/{line}/{assembler}_polish/{assembler}_vs_consensus/{assembler}_vs_consensus.bam",
-        vcf = OUTDIR + "/{sample}/{line}/{assembler}_polish/{assembler}_vs_consensus/{assembler}_vs_consensus.vcf.gz",
+        paf = SAMPLE_DIR + "/{sample}/{line}/{assembler}_polish/{assembler}_vs_consensus/{assembler}_vs_consensus.paf",
+        bam = SAMPLE_DIR + "/{sample}/{line}/{assembler}_polish/{assembler}_vs_consensus/{assembler}_vs_consensus.bam",
+        vcf = SAMPLE_DIR + "/{sample}/{line}/{assembler}_polish/{assembler}_vs_consensus/{assembler}_vs_consensus.vcf.gz",
     threads: THREADS
     shell:
         """
@@ -998,25 +1024,25 @@ rule assembly_vs_consensus:
 rule final_alignment:
     """Align all consensus sequences against the initial reference, per contig."""
     input:
-        ref      = OUTDIR + "/{sample}/reference/ref.fasta",
-        iter_stats = OUTDIR + "/{sample}/{line}/iterative/convergence_stats.tsv",
-        ivar     = OUTDIR + "/{sample}/{line}/ivar/final_consensus.fasta",
+        ref      = SAMPLE_DIR + "/{sample}/reference/ref.fasta",
+        iter_stats = SAMPLE_DIR + "/{sample}/{line}/iterative/convergence_stats.tsv",
+        ivar     = SAMPLE_DIR + "/{sample}/{line}/ivar/final_consensus.fasta",
         polished = expand(
-            OUTDIR + "/{{sample}}/{{line}}/{assembler}_polish/{assembler}_guided_polished.fasta",
+            SAMPLE_DIR + "/{{sample}}/{{line}}/{assembler}_polish/{assembler}_guided_polished.fasta",
             assembler=ASSEMBLERS,
         ),
     output:
-        alignment = OUTDIR + "/{sample}/{line}/final_alignment/aligned.fasta",
+        alignment = SAMPLE_DIR + "/{sample}/{line}/final_alignment/aligned.fasta",
     params:
-        assemblers = ASSEMBLERS,
-        outdir     = OUTDIR,
+        assemblers  = ASSEMBLERS,
+        sample_dir  = SAMPLE_DIR,
     threads: THREADS
     run:
         import subprocess, os, glob, re, tempfile
 
         # Discover round directories (created by iterative_mapping)
         iter_base = os.path.join(
-            str(params.outdir), wildcards.sample, wildcards.line, "iterative"
+            str(params.sample_dir), wildcards.sample, wildcards.line, "iterative"
         )
         round_dirs = sorted(
             [d for d in glob.glob(os.path.join(iter_base, "round_*")) if os.path.isdir(d)],
@@ -1086,10 +1112,10 @@ rule final_alignment:
 rule homoplasy_analysis:
     """Compute delta score (Holland et al. 2002) and homoplasy metrics from MAFFT alignment."""
     input:
-        alignment = OUTDIR + "/{sample}/{line}/final_alignment/aligned.fasta",
+        alignment = SAMPLE_DIR + "/{sample}/{line}/final_alignment/aligned.fasta",
     output:
-        report    = OUTDIR + "/{sample}/{line}/homoplasy/homoplasy_report.tsv",
-        distances = OUTDIR + "/{sample}/{line}/homoplasy/pairwise_distances.tsv",
+        report    = SAMPLE_DIR + "/{sample}/{line}/homoplasy/homoplasy_report.tsv",
+        distances = SAMPLE_DIR + "/{sample}/{line}/homoplasy/pairwise_distances.tsv",
     run:
         import os
         from itertools import combinations
@@ -1245,30 +1271,30 @@ rule homoplasy_analysis:
 rule summary:
     """Write per-segment summary with coverage, completeness, N counts, and stop-codon check."""
     input:
-        ref        = OUTDIR + "/{sample}/reference/ref.fasta",
-        iter_stats = OUTDIR + "/{sample}/{line}/iterative/convergence_stats.tsv",
-        consensus  = OUTDIR + "/{sample}/{line}/ivar/final_consensus.fasta",
+        ref        = SAMPLE_DIR + "/{sample}/reference/ref.fasta",
+        iter_stats = SAMPLE_DIR + "/{sample}/{line}/iterative/convergence_stats.tsv",
+        consensus  = SAMPLE_DIR + "/{sample}/{line}/ivar/final_consensus.fasta",
         polished   = expand(
-            OUTDIR + "/{{sample}}/{{line}}/{assembler}_polish/{assembler}_guided_polished.fasta",
+            SAMPLE_DIR + "/{{sample}}/{{line}}/{assembler}_polish/{assembler}_guided_polished.fasta",
             assembler=ASSEMBLERS,
         ),
         comparison = expand(
-            OUTDIR + "/{{sample}}/{{line}}/{assembler}_polish/{assembler}_vs_consensus/{assembler}_vs_consensus.paf",
+            SAMPLE_DIR + "/{{sample}}/{{line}}/{assembler}_polish/{assembler}_vs_consensus/{assembler}_vs_consensus.paf",
             assembler=ASSEMBLERS,
         ),
-        alignment  = OUTDIR + "/{sample}/{line}/final_alignment/aligned.fasta",
+        alignment  = SAMPLE_DIR + "/{sample}/{line}/final_alignment/aligned.fasta",
         final_bam  = lambda wc: _analysis_bam(
-            f"{OUTDIR}/{wc.sample}/{wc.line}/final", wc.line
+            f"{SAMPLE_DIR}/{wc.sample}/{wc.line}/final", wc.line
         ),
         ivar_bam = lambda wc: _analysis_bam(
-            f"{OUTDIR}/{wc.sample}/{wc.line}/ivar", wc.line
+            f"{SAMPLE_DIR}/{wc.sample}/{wc.line}/ivar", wc.line
         ),
     output:
-        summary = OUTDIR + "/{sample}/{line}/summary.tsv",
+        summary = SAMPLE_DIR + "/{sample}/{line}/summary.tsv",
     params:
         check_stops = CHECK_STOPS,
         assemblers  = ASSEMBLERS,
-        outdir      = OUTDIR,
+        sample_dir  = SAMPLE_DIR,
     run:
         import subprocess, glob, os, re
 
@@ -1329,7 +1355,7 @@ rule summary:
 
         # ── Discover round directories (created by iterative_mapping) ──
         iter_base = os.path.join(
-            str(params.outdir), wildcards.sample, wildcards.line, "iterative"
+            str(params.sample_dir), wildcards.sample, wildcards.line, "iterative"
         )
         round_dirs = sorted(
             [d for d in glob.glob(os.path.join(iter_base, "round_*")) if os.path.isdir(d)],
@@ -1426,118 +1452,62 @@ rule summary:
 
 
 # ═══════════════════════════════════════════════════════════════
-# IQ-TREE COMBINED PHYLOGENETIC ANALYSIS
+# IQ-TREE TWO-PHASE PHYLOGENETIC ANALYSIS
+# Phase 1: backbone tree from GenBank references (per segment)
+# Phase 2: place each sample's consensus sequences onto backbone
 # ═══════════════════════════════════════════════════════════════
 
-rule iqtree_combined:
-    """Build ML tree per segment across all samples + GenBank references using IQ-TREE."""
+rule iqtree_backbone:
+    """Phase 1: Build backbone ML tree from GenBank references only (once per segment)."""
     input:
-        ivar = expand(
-            OUTDIR + "/{sample}/{{line}}/ivar/final_consensus.fasta",
-            sample=SAMPLES.keys(),
-        ),
-        polished = expand(
-            OUTDIR + "/{sample}/{{line}}/{assembler}_polish/{assembler}_guided_polished.fasta",
-            sample=SAMPLES.keys(),
-            assembler=ASSEMBLERS,
-        ),
-        genbank = GENBANK_DIR + "/{segment}.full_len.cds.clean.uniq.fa",
+        genbank = COMMON_DIR + "/genbank_subsampled/{segment}.subsampled.fa",
     output:
-        alignment = OUTDIR + "/iqtree/{line}/{segment}/aligned.fasta",
-        treefile  = OUTDIR + "/iqtree/{line}/{segment}/iqtree.treefile",
-        iqtree    = OUTDIR + "/iqtree/{line}/{segment}/iqtree.iqtree",
-        log       = OUTDIR + "/iqtree/{line}/{segment}/iqtree.log",
-    params:
-        samples    = list(SAMPLES.keys()),
-        assemblers = ASSEMBLERS,
-        outdir     = OUTDIR,
+        alignment = COMMON_DIR + "/iqtree/backbone/{segment}/aligned.fasta",
+        treefile  = COMMON_DIR + "/iqtree/backbone/{segment}/backbone.treefile",
+        iqtree    = COMMON_DIR + "/iqtree/backbone/{segment}/backbone.iqtree",
+        log       = COMMON_DIR + "/iqtree/backbone/{segment}/backbone.log",
     threads: THREADS
     run:
-        import subprocess, os, tempfile
+        import subprocess, os
 
-        def extract_segment(fasta_path, segment, sample):
-            """Extract the sequence for a given segment from a multi-segment FASTA."""
-            seqs = read_fasta(fasta_path)
-            target = f"{segment}_{sample}"
-            if target in seqs:
-                return seqs[target]
-            # Fallback: find key starting with segment prefix
-            for name, seq in seqs.items():
-                if name.startswith(f"{segment}_"):
-                    return seq
-            return None
-
-        seg = wildcards.segment
-        line = wildcards.line
         out_dir = os.path.dirname(str(output.alignment))
         os.makedirs(out_dir, exist_ok=True)
 
-        # ── Collect sequences ──
-        collected = {}
-
-        # ivar consensus per sample
-        for sample in params.samples:
-            ivar_path = os.path.join(
-                str(params.outdir), sample, line, "ivar", "final_consensus.fasta"
-            )
-            if os.path.exists(ivar_path):
-                seq = extract_segment(ivar_path, seg, sample)
-                if seq and seq.replace("N", ""):
-                    collected[f"{sample}_ivar"] = seq
-
-        # Polished consensus per sample × assembler
-        for sample in params.samples:
-            for assembler in params.assemblers:
-                pol_path = os.path.join(
-                    str(params.outdir), sample, line,
-                    f"{assembler}_polish",
-                    f"{assembler}_guided_polished.fasta",
-                )
-                if os.path.exists(pol_path):
-                    seq = extract_segment(pol_path, seg, sample)
-                    if seq and seq.replace("N", ""):
-                        collected[f"{sample}_{assembler}"] = seq
-
-        # GenBank references
         genbank_seqs = read_fasta(str(input.genbank))
-        for name, seq in genbank_seqs.items():
-            collected[f"genbank_{name}"] = seq
 
-        if len(collected) < 4:
-            # Not enough sequences for meaningful tree; write stub outputs
+        if len(genbank_seqs) < 4:
             with open(str(output.alignment), "w") as f:
-                for name, seq in collected.items():
+                for name, seq in genbank_seqs.items():
                     f.write(f">{name}\n{seq}\n")
             with open(str(output.treefile), "w") as f:
                 f.write("(no_tree);\n")
             with open(str(output.iqtree), "w") as f:
-                f.write("# Too few sequences for IQ-TREE analysis\n")
+                f.write("# Too few sequences for IQ-TREE backbone\n")
             with open(str(output.log), "w") as f:
-                f.write("# Too few sequences for IQ-TREE analysis\n")
-            print(f"[WARN] {seg}/{line}: only {len(collected)} sequences, skipping IQ-TREE")
+                f.write("# Too few sequences for IQ-TREE backbone\n")
+            print(f"[WARN] {wildcards.segment}: only {len(genbank_seqs)} GenBank refs, skipping backbone")
             return
 
-        # ── Write unaligned FASTA ──
+        # Write unaligned GenBank FASTA
         unaligned_path = os.path.join(out_dir, "unaligned.fasta")
         with open(unaligned_path, "w") as f:
-            for name, seq in collected.items():
+            for name, seq in genbank_seqs.items():
                 f.write(f">{name}\n{seq}\n")
 
-        print(f"[INFO] {seg}/{line}: {len(collected)} sequences collected for IQ-TREE")
+        print(f"[INFO] {wildcards.segment}: {len(genbank_seqs)} GenBank refs for backbone")
 
-        # ── MAFFT alignment ──
+        # MAFFT alignment
         result = subprocess.run(
             ["mafft", "--auto", "--thread", str(threads), unaligned_path],
             capture_output=True, text=True,
         )
         if result.returncode != 0:
             raise RuntimeError(f"MAFFT failed: {result.stderr}")
-
         with open(str(output.alignment), "w") as f:
             f.write(result.stdout)
 
-        # ── IQ-TREE ──
-        prefix = os.path.join(out_dir, "iqtree")
+        # IQ-TREE full ML search with ModelFinder
+        prefix = os.path.join(out_dir, "backbone")
         cmd = [
             "iqtree",
             "-s", str(output.alignment),
@@ -1546,36 +1516,188 @@ rule iqtree_combined:
             "-alrt", "1000",      # SH-aLRT branch test
             "-T", str(threads),
             "--prefix", prefix,
-            "-redo",              # overwrite previous run
+            "-redo",
         ]
         result = subprocess.run(cmd, capture_output=True, text=True)
         if result.returncode != 0:
-            raise RuntimeError(f"IQ-TREE failed: {result.stderr}")
+            raise RuntimeError(f"IQ-TREE backbone failed: {result.stderr}")
 
-        print(f"[INFO] {seg}/{line}: IQ-TREE completed → {output.treefile}")
+        print(f"[INFO] {wildcards.segment}: backbone tree completed → {output.treefile}")
+
+
+rule iqtree_place_sample:
+    """Phase 2: Place a sample's consensus sequences onto the fixed backbone tree."""
+    input:
+        backbone_tree = COMMON_DIR + "/iqtree/backbone/{segment}/backbone.treefile",
+        backbone_aln  = COMMON_DIR + "/iqtree/backbone/{segment}/aligned.fasta",
+        backbone_iq   = COMMON_DIR + "/iqtree/backbone/{segment}/backbone.iqtree",
+        ivar = SAMPLE_DIR + "/{sample}/{line}/ivar/final_consensus.fasta",
+        polished = expand(
+            SAMPLE_DIR + "/{{sample}}/{{line}}/{assembler}_polish/{assembler}_guided_polished.fasta",
+            assembler=ASSEMBLERS,
+        ),
+        iter_stats = SAMPLE_DIR + "/{sample}/{line}/iterative/convergence_stats.tsv",
+    output:
+        alignment = SAMPLE_DIR + "/{sample}/{line}/iqtree/{segment}/aligned.fasta",
+        treefile  = SAMPLE_DIR + "/{sample}/{line}/iqtree/{segment}/iqtree.treefile",
+        iqtree    = SAMPLE_DIR + "/{sample}/{line}/iqtree/{segment}/iqtree.iqtree",
+        log       = SAMPLE_DIR + "/{sample}/{line}/iqtree/{segment}/iqtree.log",
+    params:
+        assemblers = ASSEMBLERS,
+        sample_dir = SAMPLE_DIR,
+    threads: THREADS
+    run:
+        import subprocess, os, glob, re
+
+        def extract_segment(fasta_path, segment, sample):
+            """Extract the sequence for a given segment from a multi-segment FASTA."""
+            seqs = read_fasta(fasta_path)
+            target = f"{segment}_{sample}"
+            if target in seqs:
+                return seqs[target]
+            for name, seq in seqs.items():
+                if f"_{segment}_{sample}" in name or name.startswith(f"{segment}_"):
+                    return seq
+            return None
+
+        seg = wildcards.segment
+        line = wildcards.line
+        sample = wildcards.sample
+        out_dir = os.path.dirname(str(output.alignment))
+        os.makedirs(out_dir, exist_ok=True)
+
+        # Check backbone is valid
+        with open(str(input.backbone_tree)) as f:
+            tree_str = f.read().strip()
+        if tree_str.startswith("(no_tree)") or not tree_str:
+            with open(str(output.alignment), "w") as f:
+                f.write("")
+            for p in [output.treefile, output.iqtree, output.log]:
+                with open(str(p), "w") as f:
+                    f.write("# No backbone tree available\n")
+            print(f"[WARN] {seg}/{line}/{sample}: no backbone tree, skipping placement")
+            return
+
+        # Parse model from backbone IQ-TREE report
+        best_model = "MFP"
+        with open(str(input.backbone_iq)) as f:
+            for bline in f:
+                m = re.search(r"Best-fit model according to BIC:\s+(.+)", bline)
+                if m:
+                    best_model = m.group(1).strip()
+                    break
+
+        # ── Collect sample consensus sequences ──
+        collected = {}
+
+        # Reference used for iterative mapping
+        ref_path = os.path.join(
+            str(params.sample_dir), sample, line, "iterative", "round_1", "reference.fasta"
+        )
+        if os.path.exists(ref_path):
+            seq = extract_segment(ref_path, seg, sample)
+            if seq and seq.replace("N", ""):
+                collected[f"{sample}_reference"] = seq
+
+        # Iterative mapping rounds
+        iter_base = os.path.join(str(params.sample_dir), sample, line, "iterative")
+        round_dirs = sorted(
+            [d for d in glob.glob(os.path.join(iter_base, "round_*")) if os.path.isdir(d)],
+            key=lambda d: int(re.search(r"round_(\d+)", d).group(1)),
+        )
+        for rd in round_dirs:
+            n = re.search(r"round_(\d+)", rd).group(1)
+            cons_path = os.path.join(rd, "consensus.fasta")
+            if os.path.exists(cons_path):
+                seq = extract_segment(cons_path, seg, sample)
+                if seq and seq.replace("N", ""):
+                    collected[f"{sample}_round_{n}"] = seq
+
+        # iVar consensus
+        if os.path.exists(str(input.ivar)):
+            seq = extract_segment(str(input.ivar), seg, sample)
+            if seq and seq.replace("N", ""):
+                collected[f"{sample}_ivar"] = seq
+
+        # Polished consensus per assembler
+        for i, assembler in enumerate(params.assemblers):
+            pol_path = str(input.polished[i])
+            if os.path.exists(pol_path):
+                seq = extract_segment(pol_path, seg, sample)
+                if seq and seq.replace("N", ""):
+                    collected[f"{sample}_{assembler}"] = seq
+
+        if len(collected) == 0:
+            with open(str(output.alignment), "w") as f:
+                f.write("")
+            for p in [output.treefile, output.iqtree, output.log]:
+                with open(str(p), "w") as f:
+                    f.write("# No sample sequences for this segment\n")
+            print(f"[WARN] {seg}/{line}/{sample}: no sample sequences, skipping")
+            return
+
+        # Write sample sequences to temp FASTA
+        sample_fasta = os.path.join(out_dir, "sample_seqs.fasta")
+        with open(sample_fasta, "w") as f:
+            for name, seq in collected.items():
+                f.write(f">{name}\n{seq}\n")
+
+        print(f"[INFO] {seg}/{line}/{sample}: {len(collected)} sample sequences to place on backbone")
+
+        # ── MAFFT --add: add sample sequences to backbone alignment ──
+        result = subprocess.run(
+            ["mafft", "--add", sample_fasta, "--keeplength",
+             "--thread", str(threads), str(input.backbone_aln)],
+            capture_output=True, text=True,
+        )
+        if result.returncode != 0:
+            raise RuntimeError(f"MAFFT --add failed: {result.stderr}")
+
+        with open(str(output.alignment), "w") as f:
+            f.write(result.stdout)
+
+        # ── IQ-TREE with constraint backbone ──
+        prefix = os.path.join(out_dir, "iqtree")
+        cmd = [
+            "iqtree",
+            "-s", str(output.alignment),
+            "-g", str(input.backbone_tree),   # constraint tree (fixed backbone)
+            "-m", best_model,                  # reuse model from backbone
+            "-T", str(threads),
+            "--prefix", prefix,
+            "-redo",
+        ]
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        if result.returncode != 0:
+            raise RuntimeError(f"IQ-TREE placement failed: {result.stderr}")
+
+        print(f"[INFO] {seg}/{line}/{sample}: placement completed → {output.treefile}")
 
 
 rule iqtree_homoplasy_summary:
-    """Parse IQ-TREE outputs and compute CI/RI/HI via Fitch parsimony."""
+    """Parse per-sample IQ-TREE outputs and compute CI/RI/HI via Fitch parsimony."""
     input:
         iqtree_files = expand(
-            OUTDIR + "/iqtree/{line}/{segment}/iqtree.iqtree",
+            SAMPLE_DIR + "/{sample}/{line}/iqtree/{segment}/iqtree.iqtree",
             line=LINES,
             segment=SEGMENTS,
+            sample=SAMPLES.keys(),
         ),
         tree_files = expand(
-            OUTDIR + "/iqtree/{line}/{segment}/iqtree.treefile",
+            SAMPLE_DIR + "/{sample}/{line}/iqtree/{segment}/iqtree.treefile",
             line=LINES,
             segment=SEGMENTS,
+            sample=SAMPLES.keys(),
         ),
         aln_files = expand(
-            OUTDIR + "/iqtree/{line}/{segment}/aligned.fasta",
+            SAMPLE_DIR + "/{sample}/{line}/iqtree/{segment}/aligned.fasta",
             line=LINES,
             segment=SEGMENTS,
+            sample=SAMPLES.keys(),
         ),
     output:
-        summary       = OUTDIR + "/iqtree/iqtree_summary.tsv",
-        taxon_report  = OUTDIR + "/iqtree/taxon_homoplasy.tsv",
+        summary       = COMMON_DIR + "/iqtree/iqtree_summary.tsv",
+        taxon_report  = COMMON_DIR + "/iqtree/taxon_homoplasy.tsv",
     run:
         import os, re
         from collections import Counter
@@ -1634,22 +1756,13 @@ rule iqtree_homoplasy_summary:
 
         # ── Combined analysis: global metrics + per-taxon ──
         def analyse_tree(tree_path, aln_path):
-            """Return (global_metrics_dict, per_taxon_stats_dict).
-
-            Per-taxon stats include patristic-distance-aware convergence:
-              - For each convergent site, the patristic distance to the nearest
-                other taxon sharing the same derived state is recorded.
-              - 'mean_conv_dist': mean patristic distance of convergent changes
-              - 'near_convergent' / 'distant_convergent': count of convergent
-                changes where the nearest sharer is below/above the median
-                pairwise patristic distance (i.e. local vs distant homoplasy).
-            """
+            """Return (global_metrics_dict, per_taxon_stats_dict)."""
             na_global = {
                 "parsimony_score": "NA", "ci": "NA", "ri": "NA", "hi": "NA",
             }
             with open(tree_path) as f:
                 tree_str = f.read().strip()
-            if tree_str.startswith("(no_tree)") or not tree_str:
+            if tree_str.startswith("(no_tree)") or tree_str.startswith("# No") or not tree_str:
                 return na_global, {}
 
             tree = Phylo.read(StringIO(tree_str), "newick")
@@ -1789,7 +1902,7 @@ rule iqtree_homoplasy_summary:
 
             with open(path) as f:
                 content = f.read()
-            if content.startswith("# Too few"):
+            if content.startswith("# Too few") or content.startswith("# No"):
                 return info
 
             # v2: "Number of sequences: N" / v3: "Input data: N sequences with M nucleotide sites"
@@ -1852,19 +1965,23 @@ rule iqtree_homoplasy_summary:
 
             return info
 
-        # ── Build summary ──
+        # ── Build summary from per-sample trees ──
+        # Group inputs by (line, segment, sample)
         path_map = {}
         for iq_path in input.iqtree_files:
             parts = str(iq_path).split("/")
+            # Path: .../samples/{sample}/{line}/iqtree/{segment}/iqtree.iqtree
             segment = parts[-2]
-            line = parts[-3]
+            # parts[-3] == "iqtree"
+            line = parts[-4]
+            sample_name = parts[-5]
             base_dir = os.path.dirname(str(iq_path))
-            path_map[(line, segment)] = base_dir
+            path_map[(line, segment, sample_name)] = base_dir
 
         summary_rows = []
         all_taxon_rows = []
 
-        for (line, segment), base_dir in sorted(path_map.items()):
+        for (line, segment, sample_name), base_dir in sorted(path_map.items()):
             iq_path = os.path.join(base_dir, "iqtree.iqtree")
             tree_path = os.path.join(base_dir, "iqtree.treefile")
             aln_path = os.path.join(base_dir, "aligned.fasta")
@@ -1872,9 +1989,9 @@ rule iqtree_homoplasy_summary:
             info = parse_iqtree(iq_path)
             global_metrics, taxon_stats = analyse_tree(tree_path, aln_path)
             info.update(global_metrics)
-            summary_rows.append((line, segment, info))
+            summary_rows.append((line, segment, sample_name, info))
 
-            # ── Per-taxon rows (sample taxa + GenBank aggregate) ──
+            # ── Per-taxon rows: only report sample taxa (not GenBank backbone) ──
             genbank_agg = {
                 "terminal_changes": 0, "convergent": 0,
                 "autapomorphic": 0, "near_convergent": 0,
@@ -1883,8 +2000,10 @@ rule iqtree_homoplasy_summary:
             }
 
             for taxon, ts in sorted(taxon_stats.items()):
-                is_genbank = taxon.startswith("genbank_")
-                if is_genbank:
+                # Identify sample taxa by prefix (e.g. "B1_ivar", "B1_round_3")
+                is_sample = taxon.startswith(f"{sample_name}_")
+                if not is_sample:
+                    # Aggregate GenBank backbone stats
                     genbank_agg["terminal_changes"] += ts["terminal_changes"]
                     genbank_agg["convergent"] += ts["convergent"]
                     genbank_agg["autapomorphic"] += ts["autapomorphic"]
@@ -1896,17 +2015,14 @@ rule iqtree_homoplasy_summary:
                     genbank_agg["count"] += 1
                     continue
 
-                # Parse sample and method from taxon name (e.g. "B1_ivar")
-                parts_t = taxon.rsplit("_", 1)
-                if len(parts_t) == 2:
-                    sample, method = parts_t
-                else:
-                    sample, method = taxon, "unknown"
+                # Parse method from taxon name (e.g. "B1_ivar" → method="ivar",
+                # "B1_round_3" → method="round_3", "B1_reference" → method="reference")
+                method = taxon[len(sample_name) + 1:]  # strip "SAMPLE_" prefix
 
                 tc = ts["terminal_changes"]
                 all_taxon_rows.append({
                     "line": line, "segment": segment,
-                    "taxon": taxon, "sample": sample, "method": method,
+                    "taxon": taxon, "sample": sample_name, "method": method,
                     "terminal_changes": tc,
                     "convergent_changes": ts["convergent"],
                     "near_convergent": ts["near_convergent"],
@@ -1917,7 +2033,7 @@ rule iqtree_homoplasy_summary:
                     "mean_convergent_distance": f"{ts['mean_conv_dist']:.4f}",
                 })
 
-            # GenBank aggregate row for comparison
+            # GenBank backbone aggregate row for comparison
             gc = genbank_agg["count"]
             if gc > 0:
                 gtc = genbank_agg["terminal_changes"]
@@ -1930,23 +2046,23 @@ rule iqtree_homoplasy_summary:
                            if genbank_agg["conv_dist_n"] > 0 else 0.0)
                 all_taxon_rows.append({
                     "line": line, "segment": segment,
-                    "taxon": f"genbank_mean (n={gc})",
-                    "sample": "genbank", "method": "reference",
+                    "taxon": f"backbone_mean (n={gc})",
+                    "sample": sample_name, "method": "backbone",
                     "terminal_changes": round(gtc / gc, 1),
                     "convergent_changes": round(gconv / gc, 1),
                     "near_convergent": round(gnear / gc, 1),
                     "distant_convergent": round(gdist / gc, 1),
                     "autapomorphic_changes": round(gauto / gc, 1),
                     "total_variable_sites": taxon_stats[
-                        next(k for k in taxon_stats if k.startswith("genbank_"))
-                    ]["total_variable"] if taxon_stats else 0,
+                        next((k for k in taxon_stats if not k.startswith(f"{sample_name}_")), None)
+                    ]["total_variable"] if any(not k.startswith(f"{sample_name}_") for k in taxon_stats) else 0,
                     "homoplasy_fraction": f"{gfrac:.4f}",
                     "mean_convergent_distance": f"{gmean_d:.4f}",
                 })
 
         # ── Write global summary ──
         hdr = [
-            "line", "segment", "num_sequences", "alignment_length",
+            "line", "segment", "sample", "num_sequences", "alignment_length",
             "constant_sites", "constant_sites_pct",
             "variable_sites", "parsimony_informative",
             "parsimony_informative_pct", "singleton_sites",
@@ -1958,9 +2074,9 @@ rule iqtree_homoplasy_summary:
         os.makedirs(os.path.dirname(str(output.summary)), exist_ok=True)
         with open(str(output.summary), "w") as f:
             f.write("\t".join(hdr) + "\n")
-            for line, segment, info in summary_rows:
+            for line, segment, sample_name, info in summary_rows:
                 f.write("\t".join([
-                    line, segment,
+                    line, segment, sample_name,
                     info["num_sequences"], info["alignment_length"],
                     info["constant_sites"], info["constant_sites_pct"],
                     info["variable_sites"], info["parsimony_informative"],

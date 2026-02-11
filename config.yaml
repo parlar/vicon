@@ -20,7 +20,7 @@ max_iterations: 10
 min_iterations: 2
 
 # Threads per job
-threads: 8
+threads: 12
 
 # Pipeline lines to run
 lines:
@@ -63,6 +63,11 @@ extend_reference: false
 # and pick the best L, M, S reference per sample (by mapped reads + completeness).
 # When false, uses pre-existing refs from ref_dir.
 auto_select_refs: false
+
+# GenBank subsampling: max number of GenBank references per segment
+# in phylogenetic trees. Uses Mash-distance-based furthest-point-first
+# selection to maximize diversity. Set to 0 to include all references.
+max_genbank_refs: 50
 
 # Samples: auto-detected from fastq_dir if empty/omitted.
 # To run a subset, list sample names explicitly:
