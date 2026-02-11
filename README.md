@@ -1,6 +1,6 @@
 # ViCon — Viral Consensus Pipeline
 
-ViCon is a Snakemake pipeline for generating consensus genomes from segmented RNA viruses (e.g. hantaviruses) using paired-end Illumina data. It combines iterative reference-guided mapping, multiple de novo assemblers, assembly-guided polishing, and phylogenetic analysis with homoplasy metrics.
+ViCon is a Snakemake pipeline for generating high-quality consensus genomes from segmented RNA viruses (e.g. hantaviruses) using paired-end Illumina data. It combines iterative reference-guided mapping, multiple de novo assemblers, assembly-guided polishing, and phylogenetic analysis with homoplasy metrics. ViCon automatically selects the best consensus method per segment based on phylogenetic placement, constructs a hybrid consensus from non-homoplastic bases, validates the result against the backbone tree, and checks read support at disputed positions. Per-sample and cross-sample HTML reports consolidate all quality metrics.
 
 ## Requirements
 
@@ -127,43 +127,61 @@ pixi run snakemake --cores 1 -n
 7. **iVar consensus** — Per-contig consensus calling from remapped reads
 8. **Assembly-guided polishing** — Polish consensus using each de novo assembly via minimap2 + bcftools
 9. **Multi-sequence alignment** — MAFFT alignment of all consensus stages per sample
-10. **Phylogenetic analysis** — IQ-TREE ML trees per segment with ModelFinder, ultrafast bootstrap, and SH-aLRT
+10. **Phylogenetic analysis** — IQ-TREE backbone trees per segment from GenBank references, then individual placement of each consensus method onto the backbone
 11. **Homoplasy analysis** — Fitch parsimony CI/RI/HI, delta score, per-taxon convergent change classification
+12. **Best consensus selection** — Site-level Fitch analysis ranks consensus methods by homoplastic signal; best method selected per segment; phylogenetically-informed hybrid consensus constructed from non-homoplastic bases across methods
+13. **Consensus validation** — Best and hybrid consensus sequences placed back on the backbone tree to verify that homoplasy is reduced compared to individual methods
+14. **Read support analysis** — Allele frequencies extracted from the final BAM at positions flagged as homoplastic; sites classified as supported (>80% reads agree), weak (50–80%), or contradicted (<50%)
+15. **Reporting** — Per-sample HTML report with coverage/depth plots, consensus quality, ranking, homoplasy details, validation, and read support; cross-sample HTML overview with heatmaps and method frequency charts
 
-Stages 5-9 run in parallel for dedup and nodedup analysis lines.
+Stages 5–14 run in parallel for dedup and nodedup analysis lines.
 
 ## Output structure
 
 ```
 results/
-  {sample}/
-    host_filtered/          # Host-removed FASTQ files
-    reference/              # Renamed and indexed reference
-    denovo_seed/            # (if enabled) Seeded reference
-    {line}/                 # dedup/ or nodedup/
-      iterative/            # Iterative mapping rounds and final consensus
-        round_1/            # Per-round BAM, VCF, consensus
-        round_2/
-        ...
-        final_consensus.fasta
-        analysis.bam
-        convergence_stats.tsv
-      assembly_reads/       # Reads extracted for de novo assembly
-      trinity/              # Trinity assembly
-      spades/               # SPAdes assembly
-      coronaspades/         # coronaSPAdes assembly
-      megahit/              # MEGAHIT assembly
-      iva/                  # IVA assembly
-      ivar/                 # iVar consensus
-      final/                # Final mapping to iVar consensus
-      {assembler}_polish/   # Assembly-guided polished consensus
-      final_alignment/      # MAFFT alignment of all stages
-      homoplasy/            # Delta score and pairwise distances
-      summary.tsv           # Per-segment QC summary
-  iqtree/
-    {line}/{segment}/       # IQ-TREE output per line and segment
-    iqtree_summary.tsv      # Global phylogenetic metrics
-    taxon_homoplasy.tsv     # Per-taxon homoplasy report
+  samples/
+    {sample}/
+      host_filtered/              # Host-removed FASTQ files
+      reference/                  # Renamed and indexed reference
+      denovo_seed/                # (if enabled) Seeded reference
+      {line}/                     # dedup/ or nodedup/
+        iterative/                # Iterative mapping rounds and final consensus
+          round_1/                # Per-round BAM, VCF, consensus
+          round_2/
+          ...
+          final_consensus.fasta
+          analysis.bam
+          convergence_stats.tsv
+        assembly_reads/           # Reads extracted for de novo assembly
+        trinity/                  # Trinity assembly
+        spades/                   # SPAdes assembly
+        coronaspades/             # coronaSPAdes assembly
+        megahit/                  # MEGAHIT assembly
+        iva/                      # IVA assembly
+        ivar/                     # iVar consensus
+        final/                    # Final mapping to iVar consensus
+        {assembler}_polish/       # Assembly-guided polished consensus
+        final_alignment/          # MAFFT alignment of all stages
+        homoplasy/                # Delta score and pairwise distances
+        iqtree/{segment}/         # Per-segment IQ-TREE placement results
+          consensus_placements.tsv  # Manifest of individual placements
+          placements/{method}/    # Per-method placement (tree, alignment, IQ-TREE report)
+        best_consensus/           # Best consensus selection results
+          consensus_ranking.tsv   # Methods ranked by homoplasy metrics
+          site_homoplasies.tsv    # Per-site homoplasy classification
+          best_consensus.fasta    # Best method per segment
+          hybrid_consensus.fasta  # Phylogenetically-informed hybrid
+          validation.tsv          # Validation metrics for best/hybrid
+          read_support.tsv        # Allele frequencies at disputed sites
+        summary.tsv               # Per-segment QC summary
+        report.html               # Per-sample HTML report
+  common/
+    iqtree/
+      backbone/{segment}/         # Backbone trees from GenBank references
+      iqtree_summary.tsv          # Global phylogenetic metrics
+      individual_placement_homoplasy.tsv  # Per-method homoplasy report
+    overview_report.html          # Cross-sample HTML overview
 ```
 
 ## Key output files
@@ -172,12 +190,20 @@ results/
 |------|-------------|
 | `{sample}/{line}/ivar/final_consensus.fasta` | Primary consensus sequence |
 | `{sample}/{line}/{asm}_polish/{asm}_guided_polished.fasta` | Assembly-polished consensus |
+| `{sample}/{line}/best_consensus/best_consensus.fasta` | Best consensus per segment (lowest homoplasy) |
+| `{sample}/{line}/best_consensus/hybrid_consensus.fasta` | Hybrid consensus (non-homoplastic majority rule) |
+| `{sample}/{line}/best_consensus/consensus_ranking.tsv` | All methods ranked by homoplasy metrics |
+| `{sample}/{line}/best_consensus/site_homoplasies.tsv` | Per-site homoplasy classification |
+| `{sample}/{line}/best_consensus/validation.tsv` | Best/hybrid validation vs original method |
+| `{sample}/{line}/best_consensus/read_support.tsv` | Allele frequencies at disputed sites |
 | `{sample}/{line}/summary.tsv` | Per-segment coverage, depth, completeness, N counts |
 | `{sample}/{line}/iterative/convergence_stats.tsv` | Mapped reads and completeness per iteration |
 | `{sample}/{line}/homoplasy/homoplasy_report.tsv` | Delta score and site statistics |
-| `iqtree/{line}/{segment}/iqtree.treefile` | ML phylogenetic tree (Newick) |
-| `iqtree/iqtree_summary.tsv` | Model selection, tree statistics, CI/RI/HI |
-| `iqtree/taxon_homoplasy.tsv` | Per-taxon terminal changes and convergence classification |
+| `{sample}/{line}/report.html` | Per-sample HTML report with plots |
+| `common/iqtree/backbone/{segment}/backbone.treefile` | Backbone ML tree from GenBank references |
+| `common/iqtree/iqtree_summary.tsv` | Model selection, tree statistics, CI/RI/HI |
+| `common/iqtree/individual_placement_homoplasy.tsv` | Per-method homoplasy across all samples |
+| `common/overview_report.html` | Cross-sample HTML overview with heatmaps |
 
 ## Optional features
 
