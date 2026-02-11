@@ -11,6 +11,6 @@ cd "$(dirname "$0")"
 #   --config fastq_dir=../subset_fastq samples="[B1,F1]"
 
 sg docker -c "pixi run snakemake \
-  --cores 64 \
+  --cores 72 \
   --printshellcmds \
   $*"
