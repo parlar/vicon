@@ -117,7 +117,9 @@ MEGAHIT_MEMORY  = config.get("megahit_memory", 8)
 HUMAN_BT2_INDEX    = config["human_bt2_index"]
 BANKVOLE_BT2_INDEX = config["bankvole_bt2_index"]
 GENBANK_DIR        = config.get("genbank_dir", "../genbank_reference")
-SEGMENTS           = ["L", "M", "S"]
+SEGMENTS           = config.get("segments", ["L", "M", "S"])
+_default_refs      = {s: f"{GENBANK_DIR}/{s}.full_len.cds.clean.uniq.fa" for s in SEGMENTS}
+GENBANK_REFS       = {s: config.get("genbank_refs", {}).get(s, _default_refs[s]) for s in SEGMENTS}
 AUTO_SELECT_REFS   = config.get("auto_select_refs", False)
 DENOVO_SEED        = config.get("denovo_seed", False)
 EXTEND_REFERENCE   = config.get("extend_reference", False)
@@ -196,6 +198,10 @@ def get_iterative_ref_fai(wildcards):
         return f"{SAMPLE_DIR}/{wildcards.sample}/denovo_seed/seeded_ref.fasta.fai"
     return f"{SAMPLE_DIR}/{wildcards.sample}/reference/ref.fasta.fai"
 
+def get_genbank_ref(wildcards):
+    """Return GenBank reference FASTA for a given segment."""
+    return GENBANK_REFS[wildcards.segment]
+
 
 # ── Wildcard constraints ──────────────────────────────────────
 
@@ -203,7 +209,7 @@ wildcard_constraints:
     sample    = r"[^/]+",
     line      = r"dedup|nodedup",
     assembler = r"trinity|spades|coronaspades|megahit|iva",
-    segment   = r"L|M|S",
+    segment   = "|".join(SEGMENTS),
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -353,7 +359,7 @@ rule autoref_map:
     input:
         r1 = SAMPLE_DIR + "/{sample}/host_filtered/clean_R1.fastq.gz",
         r2 = SAMPLE_DIR + "/{sample}/host_filtered/clean_R2.fastq.gz",
-        ref = GENBANK_DIR + "/{segment}.full_len.cds.clean.uniq.fa",
+        ref = get_genbank_ref,
     output:
         bam = SAMPLE_DIR + "/{sample}/autoref/{segment}/mapped.bam",
         bai = SAMPLE_DIR + "/{sample}/autoref/{segment}/mapped.bam.bai",
@@ -373,7 +379,7 @@ rule autoref_select:
     input:
         bam = SAMPLE_DIR + "/{sample}/autoref/{segment}/mapped.bam",
         bai = SAMPLE_DIR + "/{sample}/autoref/{segment}/mapped.bam.bai",
-        ref = GENBANK_DIR + "/{segment}.full_len.cds.clean.uniq.fa",
+        ref = get_genbank_ref,
     output:
         stats = SAMPLE_DIR + "/{sample}/autoref/{segment}/ref_stats.tsv",
         best_fa = SAMPLE_DIR + "/{sample}/autoref/{segment}/best.fasta",
@@ -473,15 +479,16 @@ rule autoref_select:
 
 
 rule autoref_combine:
-    """Combine best L, M, S references into a single per-sample FASTA."""
+    """Combine best references for all segments into a single per-sample FASTA."""
     input:
-        L = SAMPLE_DIR + "/{sample}/autoref/L/best.fasta",
-        M = SAMPLE_DIR + "/{sample}/autoref/M/best.fasta",
-        S = SAMPLE_DIR + "/{sample}/autoref/S/best.fasta",
+        segments = expand(
+            SAMPLE_DIR + "/{{sample}}/autoref/{segment}/best.fasta",
+            segment=SEGMENTS,
+        ),
     output:
         ref = SAMPLE_DIR + "/{sample}/autoref/best_refs.fasta",
     shell:
-        "cat {input.L} {input.M} {input.S} > {output.ref}"
+        "cat {input.segments} > {output.ref}"
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -491,7 +498,7 @@ rule autoref_combine:
 rule subsample_genbank:
     """Subsample GenBank references to N diverse representatives using Mash distances."""
     input:
-        fasta = GENBANK_DIR + "/{segment}.full_len.cds.clean.uniq.fa",
+        fasta = get_genbank_ref,
     output:
         fasta = COMMON_DIR + "/genbank_subsampled/{segment}.subsampled.fa",
     params:
@@ -511,41 +518,39 @@ rule subsample_genbank:
 # ═══════════════════════════════════════════════════════════════
 
 rule rename_ref:
-    """Rename reference contigs by size: L (largest), M (middle), S (smallest)."""
+    """Match reference contigs to configured segment names and rename to {segment}_{sample}."""
     input:
         ref = get_ref_input,
     output:
         ref = SAMPLE_DIR + "/{sample}/reference/ref.fasta",
+    params:
+        segments = SEGMENTS,
     run:
-        seqs = []
-        name = None
-        parts = []
-        with open(str(input.ref)) as f:
-            for ln in f:
-                ln = ln.rstrip("\n")
-                if ln.startswith(">"):
-                    if name:
-                        seqs.append((name, "".join(parts)))
-                    name = ln[1:].split()[0]
-                    parts = []
-                else:
-                    parts.append(ln)
-        if name:
-            seqs.append((name, "".join(parts)))
-
-        # Sort by length descending → L, M, S
-        seqs.sort(key=lambda x: len(x[1]), reverse=True)
-        labels = ["L", "M", "S"]
-
         import os
+
+        seqs = read_fasta(str(input.ref))
+
+        # Match each contig to a segment: contig name must start with the segment name
+        matched = {}
+        for seg in params.segments:
+            for contig_name, seq in seqs.items():
+                if contig_name == seg or contig_name.startswith(seg + "_"):
+                    matched[seg] = seq
+                    break
+
+        missing = [s for s in params.segments if s not in matched]
+        if missing:
+            raise ValueError(
+                f"Sample {wildcards.sample}: could not match contigs to segments "
+                f"{missing}. Reference contig names: {list(seqs.keys())}. "
+                f"Contig names must start with the segment name."
+            )
+
         os.makedirs(os.path.dirname(str(output.ref)), exist_ok=True)
         with open(str(output.ref), "w") as out:
-            for i, (orig_name, seq) in enumerate(seqs):
-                if i < len(labels):
-                    new_name = f"{labels[i]}_{wildcards.sample}"
-                else:
-                    new_name = f"{orig_name}_{wildcards.sample}"
-                out.write(f">{new_name}\n")
+            for seg in params.segments:
+                seq = matched[seg]
+                out.write(f">{seg}_{wildcards.sample}\n")
                 for j in range(0, len(seq), 80):
                     out.write(seq[j:j+80] + "\n")
 
@@ -2649,6 +2654,8 @@ rule sample_report:
         ),
     output:
         report = SAMPLE_DIR + "/{sample}/{line}/report.html",
+    params:
+        segments = SEGMENTS,
     shell:
         """
         python {workflow.basedir}/scripts/sample_report.py \
@@ -2664,6 +2671,7 @@ rule sample_report:
             --validation {input.validation} \
             --read-support {input.read_support} \
             --placements {input.placements} \
+            --segments {params.segments} \
             --output {output.report}
         """
 

@@ -2,11 +2,26 @@
 # ------------------------------------------------
 
 # Input directories (relative to vicon/)
-fastq_dir: "../clean_fasta"
+fastq_dir: "../new_data_260212"
 #fastq_dir: "../subset_fastq"
 ref_dir: "../sample-specific_refgenomes"
-outdir: "../results"
+outdir: "../results_260212_2"
 genbank_dir: "../genbank_reference"
+
+# Genomic segments to process. Contig names in reference FASTAs must start
+# with the segment name. For single-segment viruses use e.g. [genome].
+# Default: hantavirus segments ordered largest to smallest.
+segments:
+  - L
+  - M
+  - S
+
+# Per-segment GenBank reference FASTA files for auto-selection and phylogenetics.
+# Defaults to {genbank_dir}/{segment}.full_len.cds.clean.uniq.fa if not set.
+genbank_refs:
+  L: "../genbank_reference/L.full_len.cds.clean.uniq.fa"
+  M: "../genbank_reference/M.full_len.cds.clean.uniq.fa"
+  S: "../genbank_reference/S.full_len.cds.clean.uniq.fa"
 
 # Host removal: bowtie2 index prefixes (both searched sequentially)
 human_bt2_index: "/home/data/genomes/human/human"
@@ -62,7 +77,7 @@ extend_reference: false
 # Automatic reference selection: align reads against GenBank references
 # and pick the best L, M, S reference per sample (by mapped reads + completeness).
 # When false, uses pre-existing refs from ref_dir.
-auto_select_refs: false
+auto_select_refs: true
 
 # GenBank subsampling: max number of GenBank references per segment
 # in phylogenetic trees. Uses Mash-distance-based furthest-point-first

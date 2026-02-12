@@ -6,7 +6,7 @@ ViCon is a Snakemake pipeline for generating high-quality consensus genomes from
 
 - **Linux (x86_64)**
 - [Pixi](https://pixi.sh/) package manager
-- Docker (required only for Trinity assembly)
+- [Apptainer](https://apptainer.org/) (required only for Trinity assembly)
 
 All other dependencies are installed automatically by Pixi.
 
@@ -30,9 +30,9 @@ One pair per sample in a single directory, named `{sample}_R1_*.fastq.gz` and `{
 
 ### Per-sample reference FASTA
 
-A multi-segment FASTA per sample at `{ref_dir}/{sample}_best_refs.fasta`, containing one sequence per genomic segment. Contigs are automatically labelled L, M, S by size.
+A multi-segment FASTA per sample at `{ref_dir}/{sample}_best_refs.fasta`, containing one sequence per genomic segment. Contig names must start with the corresponding segment name from the `segments` config list (e.g. `L`, `M`, `S` for hantaviruses).
 
-Alternatively, enable `auto_select_refs: true` and provide a directory of reference databases (one FASTA per segment: `L.full_len.cds.clean.uniq.fa`, `M.full_len.cds.clean.uniq.fa`, `S.full_len.cds.clean.uniq.fa`).
+Alternatively (and by default), enable `auto_select_refs: true` and provide reference FASTA files per segment via the `genbank_refs` config option (or place them in `genbank_dir`).
 
 ### Host genome indices
 
@@ -47,7 +47,9 @@ Edit `config.yaml` before running. Key parameters:
 | `fastq_dir` | `../clean_fasta` | Directory with input FASTQ files |
 | `ref_dir` | `../sample-specific_refgenomes` | Directory with per-sample reference FASTAs |
 | `outdir` | `../results` | Output directory |
-| `genbank_dir` | `../genbank_reference` | Reference database for auto-selection |
+| `segments` | `[L, M, S]` | Genomic segments to process (e.g. `[genome]` for single-segment viruses) |
+| `genbank_dir` | `../genbank_reference` | Reference database directory (fallback for `genbank_refs`) |
+| `genbank_refs` | (auto from `genbank_dir`) | Per-segment reference FASTA paths (`L`, `M`, `S`) |
 | `human_bt2_index` | — | Bowtie2 index prefix for human genome |
 | `bankvole_bt2_index` | — | Bowtie2 index prefix for bank vole genome |
 | `aligner` | `strobealign` | Read aligner (`bwa-mem2` or `strobealign`) |
@@ -60,7 +62,7 @@ Edit `config.yaml` before running. Key parameters:
 | `assemblers` | `[trinity, spades, coronaspades, megahit, iva]` | De novo assemblers to run |
 | `denovo_seed` | `false` | De novo assembly to seed iterative mapping |
 | `extend_reference` | `false` | Extend consensus using soft-clipped reads |
-| `auto_select_refs` | `false` | Automatic reference selection |
+| `auto_select_refs` | `true` | Automatic reference selection |
 
 All directory paths in `config.yaml` are relative to the `vicon/` directory.
 
@@ -82,7 +84,7 @@ Or override on the command line (see below).
 
 ```bash
 cd vicon
-pixi run snakemake --cores 64
+pixi run snakemake --cores 64 --use-singularity
 ```
 
 Or use the provided wrapper:
@@ -118,23 +120,24 @@ pixi run snakemake --cores 1 -n
 
 ## Pipeline stages
 
-1. **Host read removal** — Bowtie2 sequential filtering against human and host genomes
-2. **Automatic reference selection** (optional) — Pick best reference per segment from a database
-3. **Reference preparation** — Label contigs as L, M, S by size; index for aligner
-4. **De novo reference seeding** (optional) — MEGAHIT assembly scaffolded against the reference to build a sample-specific starting reference
-5. **Iterative mapping** — Convergence-based iterative alignment with optional reference elongation using soft-clipped reads
-6. **De novo assembly** — Up to five assemblers (Trinity, SPAdes, coronaSPAdes, MEGAHIT, IVA)
-7. **iVar consensus** — Per-contig consensus calling from remapped reads
-8. **Assembly-guided polishing** — Polish consensus using each de novo assembly via minimap2 + bcftools
-9. **Multi-sequence alignment** — MAFFT alignment of all consensus stages per sample
-10. **Phylogenetic analysis** — IQ-TREE backbone trees per segment from GenBank references, then individual placement of each consensus method onto the backbone
-11. **Homoplasy analysis** — Fitch parsimony CI/RI/HI, delta score, per-taxon convergent change classification
-12. **Best consensus selection** — Site-level Fitch analysis ranks consensus methods by homoplastic signal; best method selected per segment; phylogenetically-informed hybrid consensus constructed from non-homoplastic bases across methods
-13. **Consensus validation** — Best and hybrid consensus sequences placed back on the backbone tree to verify that homoplasy is reduced compared to individual methods
-14. **Read support analysis** — Allele frequencies extracted from the final BAM at positions flagged as homoplastic; sites classified as supported (>80% reads agree), weak (50–80%), or contradicted (<50%)
-15. **Reporting** — Per-sample HTML report with coverage/depth plots, consensus quality, ranking, homoplasy details, validation, and read support; cross-sample HTML overview with heatmaps and method frequency charts
+1. **Adapter trimming** — fastp automatic adapter detection and quality trimming of raw reads
+2. **Host read removal** — Bowtie2 sequential filtering against human and host genomes
+3. **Automatic reference selection** (optional) — Pick best reference per segment from a database
+4. **Reference preparation** — Match contigs to configured segment names; index for aligner
+5. **De novo reference seeding** (optional) — MEGAHIT assembly scaffolded against the reference to build a sample-specific starting reference
+6. **Iterative mapping** — Convergence-based iterative alignment with optional reference elongation using soft-clipped reads
+7. **De novo assembly** — Up to five assemblers (Trinity via Apptainer, SPAdes, coronaSPAdes, MEGAHIT, IVA)
+8. **iVar consensus** — Per-contig consensus calling from remapped reads
+9. **Assembly-guided polishing** — Polish consensus using each de novo assembly via minimap2 + bcftools
+10. **Multi-sequence alignment** — MAFFT alignment of all consensus stages per sample
+11. **Phylogenetic analysis** — IQ-TREE backbone trees per segment from GenBank references, then individual placement of each consensus method onto the backbone
+12. **Homoplasy analysis** — Fitch parsimony CI/RI/HI, delta score, per-taxon convergent change classification
+13. **Best consensus selection** — Site-level Fitch analysis ranks consensus methods by homoplastic signal; best method selected per segment; phylogenetically-informed hybrid consensus constructed from non-homoplastic bases across methods
+14. **Consensus validation** — Best and hybrid consensus sequences placed back on the backbone tree to verify that homoplasy is reduced compared to individual methods
+15. **Read support analysis** — Allele frequencies extracted from the final BAM at positions flagged as homoplastic; sites classified as supported (>80% reads agree), weak (50–80%), or contradicted (<50%)
+16. **Reporting** — Per-sample HTML report with coverage/depth plots, consensus quality, ranking, homoplasy details, validation, and read support; cross-sample HTML overview with heatmaps and method frequency charts
 
-Stages 5–14 run in parallel for dedup and nodedup analysis lines.
+Stages 6–15 run in parallel for dedup and nodedup analysis lines.
 
 ## Output structure
 
@@ -142,6 +145,7 @@ Stages 5–14 run in parallel for dedup and nodedup analysis lines.
 results/
   samples/
     {sample}/
+      trimmed/                    # Adapter-trimmed FASTQs and fastp QC reports
       host_filtered/              # Host-removed FASTQ files
       reference/                  # Renamed and indexed reference
       denovo_seed/                # (if enabled) Seeded reference
@@ -217,7 +221,7 @@ Set `extend_reference: true` to extend the consensus beyond original reference b
 
 ### Automatic reference selection
 
-Set `auto_select_refs: true` and provide reference FASTA databases in `genbank_dir` (one per segment). The pipeline maps reads against all candidates and selects the best reference per segment based on completeness and mapped read count.
+Enabled by default (`auto_select_refs: true`). Provide reference FASTA files per segment via the `genbank_refs` config option, or place them in `genbank_dir` using the default naming convention. The pipeline maps reads against all candidates and selects the best reference per segment based on completeness and mapped read count.
 
 ## License
 

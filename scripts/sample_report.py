@@ -119,6 +119,12 @@ def plot_convergence(conv_rows):
     return fig_to_base64(fig)
 
 
+_PALETTE = [
+    "#2563eb", "#16a34a", "#dc2626", "#9333ea", "#ea580c",
+    "#0891b2", "#be185d", "#65a30d", "#6366f1", "#d97706",
+]
+
+
 def plot_depth(depth_data, segments=("L", "M", "S")):
     """Plot per-position depth for each segment as stacked subplots."""
     # Match segments to contigs (contigs may be named differently)
@@ -136,7 +142,7 @@ def plot_depth(depth_data, segments=("L", "M", "S")):
     fig, axes = plt.subplots(len(available), 1, figsize=(14, 3.5 * len(available)),
                              squeeze=False)
 
-    colors = {"L": "#2563eb", "M": "#16a34a", "S": "#dc2626"}
+    colors = {seg: _PALETTE[i % len(_PALETTE)] for i, seg in enumerate(segments)}
 
     for i, seg in enumerate(available):
         ax = axes[i][0]
@@ -225,7 +231,7 @@ def build_report(args):
     if args.final_bam and os.path.exists(args.final_bam):
         depth_data = get_depth(args.final_bam)
         if depth_data:
-            img = plot_depth(depth_data)
+            img = plot_depth(depth_data, segments=args.segments)
             if img:
                 sections.append("<h3>Per-position depth (final mapping)</h3>")
                 sections.append(f'<img class="plot" src="data:image/png;base64,{img}" />')
@@ -545,6 +551,8 @@ def main():
     parser.add_argument("--validation", required=True)
     parser.add_argument("--read-support", required=True)
     parser.add_argument("--placements", nargs="+", required=True)
+    parser.add_argument("--segments", nargs="+", default=["L", "M", "S"],
+                        help="Segment names (default: L M S)")
     parser.add_argument("--output", required=True)
 
     args = parser.parse_args()
