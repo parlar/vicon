@@ -10,7 +10,8 @@ cd "$(dirname "$0")"
 # Example: run only subset samples with 20 cores:
 #   --config fastq_dir=../subset_fastq samples="[B1,F1]"
 
-sg docker -c "pixi run snakemake \
+pixi run snakemake \
   --cores 72 \
+  --use-singularity \
   --printshellcmds \
-  $*"
+  "$@"

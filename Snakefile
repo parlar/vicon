@@ -845,7 +845,7 @@ rule extract_assembly_reads:
 
 
 rule trinity:
-    """Run Trinity de novo assembly via Docker."""
+    """Run Trinity de novo assembly via Apptainer (use --use-singularity)."""
     input:
         r1 = SAMPLE_DIR + "/{sample}/{line}/assembly_reads/mapped_R1.fastq.gz",
         r2 = SAMPLE_DIR + "/{sample}/{line}/assembly_reads/mapped_R2.fastq.gz",
@@ -854,32 +854,22 @@ rule trinity:
     params:
         memory = TRINITY_MEMORY,
     threads: THREADS
+    singularity: "docker://trinityrnaseq/trinityrnaseq"
     shell:
         """
         set -euo pipefail
-        READS_DIR=$(realpath $(dirname {input.r1}))
-        LINE_DIR=$(dirname "$READS_DIR")
-        TRINITY_DIR="$LINE_DIR/trinity"
-        TRINITY_OUT="$TRINITY_DIR/trinity_assembly"
-        R1=$(realpath {input.r1})
-        R2=$(realpath {input.r2})
+        TRINITY_OUT=$(dirname {output.fasta})/trinity_assembly
 
-        docker run --rm -v "$LINE_DIR":"$LINE_DIR" trinityrnaseq/trinityrnaseq rm -rf "$TRINITY_OUT"
+        rm -rf "$TRINITY_OUT"
 
-        docker run --rm \
-            -v "$LINE_DIR":"$LINE_DIR" \
-            -w "$TRINITY_DIR" \
-            trinityrnaseq/trinityrnaseq Trinity \
+        Trinity \
             --seqType fq \
-            --left "$R1" \
-            --right "$R2" \
+            --left {input.r1} \
+            --right {input.r2} \
             --max_memory {params.memory}G \
             --CPU {threads} \
             --output "$TRINITY_OUT"
 
-        docker run --rm -v "$LINE_DIR":"$LINE_DIR" trinityrnaseq/trinityrnaseq chown -R $(id -u):$(id -g) "$TRINITY_OUT" "$TRINITY_OUT.Trinity.fasta"
-
-        mkdir -p "$(dirname {output.fasta})"
         cp "$TRINITY_OUT.Trinity.fasta" {output.fasta}
         """
 

@@ -7,11 +7,12 @@ set -euo pipefail
 
 cd "$(dirname "$0")"
 
-sg docker -c "pixi run snakemake \
+pixi run snakemake \
   --cores 20 \
+  --use-singularity \
   --config \
     outdir=../results_subset \
     'samples=[B1,F1,K1]' \
     auto_select_refs=true \
   --printshellcmds \
-  $*"
+  "$@"
