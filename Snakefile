@@ -272,14 +272,43 @@ rule all:
 
 
 # ═══════════════════════════════════════════════════════════════
+# ADAPTER TRIMMING
+# ═══════════════════════════════════════════════════════════════
+
+rule adapter_trim:
+    """Trim adapters and low-quality bases from raw reads using fastp."""
+    input:
+        r1 = get_raw_r1,
+        r2 = get_raw_r2,
+    output:
+        r1   = SAMPLE_DIR + "/{sample}/trimmed/trimmed_R1.fastq.gz",
+        r2   = SAMPLE_DIR + "/{sample}/trimmed/trimmed_R2.fastq.gz",
+        html = SAMPLE_DIR + "/{sample}/trimmed/fastp.html",
+        json = SAMPLE_DIR + "/{sample}/trimmed/fastp.json",
+    threads: THREADS
+    shell:
+        """
+        set -euo pipefail
+        mkdir -p $(dirname {output.r1})
+
+        fastp \
+            --in1 {input.r1} --in2 {input.r2} \
+            --out1 {output.r1} --out2 {output.r2} \
+            --detect_adapter_for_pe \
+            --html {output.html} --json {output.json} \
+            --thread {threads}
+        """
+
+
+# ═══════════════════════════════════════════════════════════════
 # HOST REMOVAL
 # ═══════════════════════════════════════════════════════════════
 
 rule host_removal:
     """Remove human and bank vole host reads using bowtie2 --very-sensitive."""
     input:
-        r1 = get_raw_r1,
-        r2 = get_raw_r2,
+        r1 = SAMPLE_DIR + "/{sample}/trimmed/trimmed_R1.fastq.gz",
+        r2 = SAMPLE_DIR + "/{sample}/trimmed/trimmed_R2.fastq.gz",
     output:
         r1 = SAMPLE_DIR + "/{sample}/host_filtered/clean_R1.fastq.gz",
         r2 = SAMPLE_DIR + "/{sample}/host_filtered/clean_R2.fastq.gz",
