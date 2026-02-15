@@ -13,5 +13,6 @@ cd "$(dirname "$0")"
 pixi run snakemake \
   --cores 72 \
   --use-singularity \
+  --singularity-args "--bind $(realpath ..)" \
   --printshellcmds \
   "$@"
