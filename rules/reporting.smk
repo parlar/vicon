@@ -1,3 +1,30 @@
+rule minor_variants:
+    """Detect minor variants (intra-host diversity) using iVar variants."""
+    input:
+        final_bam = lambda wc: _analysis_bam(
+            f"{SAMPLE_DIR}/{wc.sample}/{wc.line}/final", wc.line
+        ),
+        ref = SAMPLE_DIR + "/{sample}/{line}/ivar/final_consensus.fasta",
+    output:
+        variants = SAMPLE_DIR + "/{sample}/{line}/minor_variants/minor_variants.tsv",
+        summary  = SAMPLE_DIR + "/{sample}/{line}/minor_variants/summary.tsv",
+    params:
+        min_af   = MIN_MINOR_AF,
+        prefix   = SAMPLE_DIR + "/{sample}/{line}/minor_variants/minor_variants",
+        segments = ",".join(SEGMENTS),
+    threads: 1
+    shell:
+        """
+        mkdir -p $(dirname {params.prefix})
+        samtools mpileup -aa -A -d 0 -Q 20 \
+            --reference {input.ref} {input.final_bam} \
+        | ivar variants -p {params.prefix} -t {params.min_af} -q 20 -r {input.ref}
+
+        python {workflow.basedir}/scripts/summarize_minor_variants.py \
+            {output.variants} {output.summary} {params.segments}
+        """
+
+
 rule sample_report:
     """Generate a comprehensive HTML report consolidating all sample results."""
     input:
@@ -13,6 +40,7 @@ rule sample_report:
         best_fasta   = SAMPLE_DIR + "/{sample}/{line}/best_consensus/best_consensus.fasta",
         validation   = SAMPLE_DIR + "/{sample}/{line}/best_consensus/validation.tsv",
         read_support = SAMPLE_DIR + "/{sample}/{line}/best_consensus/read_support.tsv",
+        minor_var    = SAMPLE_DIR + "/{sample}/{line}/minor_variants/summary.tsv",
         placements   = expand(
             SAMPLE_DIR + "/{{sample}}/{{line}}/iqtree/{segment}/consensus_placements.tsv",
             segment=SEGMENTS,
@@ -35,6 +63,7 @@ rule sample_report:
             --best-fasta {input.best_fasta} \
             --validation {input.validation} \
             --read-support {input.read_support} \
+            --minor-variants {input.minor_var} \
             --placements {input.placements} \
             --segments {params.segments} \
             --output {output.report}
@@ -157,6 +186,16 @@ files (contigs, scaffolds, logs, graphs).
 | `read_support.tsv` | Allele frequencies from the final BAM at disputed (homoplastic) sites |
 | `validation.tsv` | Comparison of best/hybrid consensus vs. original rank-1 method |
 | `validation/` | IQ-TREE runs for best and hybrid consensus placement |
+
+### `minor_variants/` — Intra-host diversity
+
+Genome-wide minor variant detection using iVar. Positions where an alternate
+allele exceeds the configured frequency threshold (default 5%) are reported.
+
+| File | Description |
+|------|-------------|
+| `minor_variants.tsv` | All minor variants detected by iVar (position, alleles, frequencies, depth, p-value) |
+| `summary.tsv` | Per-segment summary: variant count, mean/max allele frequency, mixed-infection flag |
 
 ### `iqtree/` — Phylogenetic placement
 

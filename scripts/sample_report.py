@@ -493,6 +493,33 @@ def build_report(args):
         sections.append("<p><em>No read support data available.</em></p>")
     sections.append("</div>")
 
+    # ── Section 10: Minor Variant / Intra-Host Diversity ──
+    if args.minor_variants:
+        mv_rows = read_tsv(args.minor_variants)
+    else:
+        mv_rows = []
+    sections.append('<div class="section">')
+    sections.append("<h2>Minor Variants / Intra-Host Diversity</h2>")
+    sections.append(
+        "<p>Positions where an alternate allele exceeds the minimum frequency "
+        "threshold (default 5%). High counts of near-equal allele frequencies "
+        "(40-60%) may indicate mixed infection or co-infection.</p>"
+    )
+    if mv_rows:
+        # Flag mixed infections
+        for r in mv_rows:
+            if r.get("mixed_infection_flag") == "YES":
+                sections.append(
+                    f'<p><span class="badge badge-bad">MIXED INFECTION?</span> '
+                    f'Segment <strong>{r.get("segment", "?")}</strong> has '
+                    f'{r.get("sites_40_60_pct", "?")} positions with near-equal '
+                    f"allele frequencies (40-60%), suggesting possible co-infection.</p>"
+                )
+        sections.append(html_table(mv_rows))
+    else:
+        sections.append("<p><em>No minor variant data available.</em></p>")
+    sections.append("</div>")
+
     # ── Assemble HTML ──
     html = f"""<!DOCTYPE html>
 <html lang="en">
@@ -550,6 +577,7 @@ def main():
     parser.add_argument("--best-fasta", required=True)
     parser.add_argument("--validation", required=True)
     parser.add_argument("--read-support", required=True)
+    parser.add_argument("--minor-variants", required=False, default=None)
     parser.add_argument("--placements", nargs="+", required=True)
     parser.add_argument("--segments", nargs="+", default=["L", "M", "S"],
                         help="Segment names (default: L M S)")

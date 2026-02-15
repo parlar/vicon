@@ -84,6 +84,10 @@ auto_select_refs: true
 # selection to maximize diversity. Set to 0 to include all references.
 max_genbank_refs: 50
 
+# Minor variant detection: minimum allele frequency threshold.
+# Positions with alternate alleles above this frequency are reported.
+min_minor_af: 0.05
+
 # Samples: auto-detected from fastq_dir if empty/omitted.
 # To run a subset, list sample names explicitly:
 # samples:

@@ -124,6 +124,7 @@ AUTO_SELECT_REFS   = config.get("auto_select_refs", False)
 DENOVO_SEED        = config.get("denovo_seed", False)
 EXTEND_REFERENCE   = config.get("extend_reference", False)
 MAX_GENBANK_REFS   = config.get("max_genbank_refs", 50)
+MIN_MINOR_AF       = config.get("min_minor_af", 0.05)
 
 
 # ── Sample detection ───────────────────────────────────────────
@@ -257,6 +258,12 @@ rule all:
         ),
         expand(
             "{sd}/{sample}/{line}/best_consensus/read_support.tsv",
+            sd=SAMPLE_DIR,
+            sample=SAMPLES.keys(),
+            line=LINES,
+        ),
+        expand(
+            "{sd}/{sample}/{line}/minor_variants/summary.tsv",
             sd=SAMPLE_DIR,
             sample=SAMPLES.keys(),
             line=LINES,
